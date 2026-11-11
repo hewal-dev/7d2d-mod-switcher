@@ -39,7 +39,6 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
-PrivilegesRequiredOverridesAllowed=dialog
 CloseApplications=yes
 VersionInfoVersion=1.2.1.0
 VersionInfoDescription=7D2D Mod Switcher Setup
