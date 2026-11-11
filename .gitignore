@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.AppImage
+.venv/
+build/
+dist/
