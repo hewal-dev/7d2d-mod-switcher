@@ -26,6 +26,20 @@ Ready-to-run **AppImage** for x86_64: see [Releases](../../releases/latest). Dow
 `chmod +x`, double-click. Python and PySide6 are bundled — nothing to install. On systems
 without FUSE2 use `./7D2D-Mod-Switcher-x86_64.AppImage --appimage-extract-and-run`.
 
+### Windows
+
+`7D2D-Mod-Switcher.exe` is attached to the same releases: one file, nothing to install. It
+creates a **junction** instead of a symlink — junctions need neither administrator rights nor
+Developer Mode. Everything else works the same; the config lives in
+`%APPDATA%\7d2d-mod-switcher\config.json`.
+
+Build it yourself on Windows:
+
+```powershell
+python -m pip install PySide6 pyinstaller
+powershell -ExecutionPolicy Bypass -File packaging\win\build.ps1
+```
+
 ## Run from source
 
 Requirements: Linux, Python 3.10+ and **PySide6**
@@ -87,8 +101,9 @@ The **Paths…** dialog offers two buttons for this:
 - **Remove symlink** — removes only the symlink; the game then starts without mods. An existing
   `Mods-Original-<date>` backup stays where it is.
 
-> **Windows:** not supported yet. The app already falls back to Windows Steam folders and
-> `%APPDATA%` for its config, but directory links and packaging still need work.
+> **Windows:** supported since 1.2.0. The app links with a junction there (`mklink /J`), which
+> works for normal users without Developer Mode. Tested on Windows 11 with Python 3.12 and
+> PySide6 6.12.
 
 ## Usage
 
@@ -114,15 +129,19 @@ suppresses the startup question.
 | `ui_kit/` | shared look (colors, radio buttons, check marks) |
 | `tests/` | checks against a throwaway folder, README screenshots |
 | `packaging/appimage/` | recipe and build for the AppImage |
+| `packaging/win/` | PowerShell build for the Windows .exe |
 | `packaging/7d2d-mod-switcher.desktop` | starter file for a local install |
 
 ## Tests
 
 ```bash
-QT_QPA_PLATFORM=offscreen python3 tests/test_mod_switcher.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_mod_switcher.py     # Linux
+python tests\test_mod_switcher.py                                # Windows
 ```
 
-The checks run in a temporary directory and never touch the real game folder.
+The checks run in a temporary directory and never touch the real game folder. On Windows the
+interpreter can still end with code `0xC0000005` (a Qt teardown quirk); the checks themselves are
+green — the final line says `Alle Prüfungen grün` / *all checks green*.
 
 ## Build the AppImage
 
@@ -160,6 +179,20 @@ einen Symlink an, der auf einen von mehreren vorbereiteten Mod-Sätzen zeigt:
 Fertige **AppImage** für x86_64 unter [Releases](../../releases/latest): herunterladen,
 `chmod +x` setzen, doppelklicken. Python und PySide6 sind enthalten. Ohne FUSE2:
 `./7D2D-Mod-Switcher-x86_64.AppImage --appimage-extract-and-run`.
+
+### Windows
+
+`7D2D-Mod-Switcher.exe` liegt bei denselben Releases: eine Datei, nichts zu installieren. Die
+App legt dort eine **Junction** statt eines Symlinks an — dafür braucht es weder Administrator-
+rechte noch den Entwicklermodus. Alles andere ist gleich; die Konfiguration liegt in
+`%APPDATA%\7d2d-mod-switcher\config.json`.
+
+Selbst bauen unter Windows:
+
+```powershell
+python -m pip install PySide6 pyinstaller
+powershell -ExecutionPolicy Bypass -File packaging\win\build.ps1
+```
 
 ### Aus dem Quellcode starten
 
@@ -218,8 +251,9 @@ Im Dialog **Pfade…** stehen dafür zwei Knöpfe:
 - **Symlink entfernen** — entfernt nur den Symlink; das Spiel startet danach ohne Mods. Eine
   vorhandene Sicherung `Mods-Original-<Datum>` bleibt liegen.
 
-> **Windows:** noch nicht unterstützt. Die App kennt bereits die Windows-Steam-Ordner und
-> `%APPDATA%` für ihre Konfiguration, aber Verzeichnis-Links und die Paketierung fehlen noch.
+> **Windows:** seit 1.2.0 unterstützt. Die App verknüpft dort mit einer Junction (`mklink /J`),
+> die auch ohne Entwicklermodus für normale Benutzer funktioniert. Geprüft auf Windows 11 mit
+> Python 3.12 und PySide6 6.12.
 
 ### Bedienung
 
@@ -245,15 +279,19 @@ und beendet die Anwendung sofort, `MODSWITCH_AUTO=__close__` öffnet und schlie�
 | `ui_kit/` | gemeinsames Aussehen (Farben, Radiobuttons, Häkchen) |
 | `tests/` | Prüfläufe gegen einen Wegwerf-Ordner, README-Bilder |
 | `packaging/appimage/` | Rezept und Baulauf für das AppImage |
+| `packaging/win/` | PowerShell-Bau für die Windows-.exe |
 | `packaging/7d2d-mod-switcher.desktop` | Starterdatei für lokale Installation |
 
 ### Prüfen
 
 ```bash
-QT_QPA_PLATFORM=offscreen python3 tests/test_mod_switcher.py
+QT_QPA_PLATFORM=offscreen python3 tests/test_mod_switcher.py     # Linux
+python tests\test_mod_switcher.py                                # Windows
 ```
 
 Die Prüfungen laufen in einem temporären Verzeichnis und fassen den echten Spielordner nicht an.
+Unter Windows kann der Prozess am Ende trotzdem mit Code `0xC0000005` beenden (Eigenheit von Qt
+beim Aufräumen) — die Prüfungen selbst sind grün, die letzte Zeile lautet `Alle Prüfungen grün`.
 
 ### AppImage bauen
 

@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -202,10 +203,54 @@ def resolve_paths() -> tuple[Path, Path]:
 apply_paths(*resolve_paths())
 
 
+
+
+# ------------------------------------------------------------------ links
+IS_WINDOWS = sys.platform.startswith("win")
+
+
+def is_link(path: Path) -> bool:
+    """True for a symlink (Linux, Windows with Developer Mode) or a junction.
+
+    Junctions need no special rights on Windows, symlinks do — which is why the
+    app creates junctions there instead.
+    """
+    if path.is_symlink():
+        return True
+    isjunction = getattr(os.path, "isjunction", None)
+    return bool(isjunction and isjunction(path))
+
+
+def create_link(target: Path, link: Path) -> None:
+    """Point `link` at `target` (junction on Windows, symlink elsewhere)."""
+    if IS_WINDOWS:
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(link), str(target)],
+            capture_output=True,
+            text=True,
+            errors="replace",
+        )
+        if result.returncode != 0:
+            raise OSError((result.stdout + result.stderr).strip() or "mklink /J failed")
+        return
+    link.symlink_to(target, target_is_directory=True)
+
+
+def remove_link(link: Path) -> bool:
+    """Remove the link itself; the folder behind it is never touched."""
+    if link.is_symlink():
+        link.unlink()
+        return True
+    if is_link(link):
+        os.rmdir(link)  # a junction is a reparse point directory
+        return True
+    return False
+
+
 # ---------------------------------------------------------------------- logic
 def active_target() -> Path | None:
     """Resolved target of the Mods symlink, or None when nothing is linked."""
-    if not MOD_LINK.is_symlink():
+    if not is_link(MOD_LINK):
         return None
     try:
         return Path(os.path.realpath(MOD_LINK))
@@ -228,8 +273,8 @@ def mod_count(path: Path) -> int:
 
 
 def mods_state() -> str:
-    """'symlink', 'directory' (real folder) or 'missing'."""
-    if MOD_LINK.is_symlink():
+    """'symlink' (link or junction), 'directory' (real folder) or 'missing'."""
+    if is_link(MOD_LINK):
         return "symlink"
     if MOD_LINK.exists():
         return "directory"
@@ -251,7 +296,7 @@ def check_state() -> str | None:
 
 def backup_mods() -> Path | None:
     """Move a real Mods folder aside; nothing in it is ever deleted."""
-    if MOD_LINK.is_symlink() or not MOD_LINK.exists():
+    if is_link(MOD_LINK) or not MOD_LINK.exists():
         return None
     stamp = time.strftime("%Y%m%d-%H%M")
     backup = MOD_LINK.with_name(f"Mods-Original-{stamp}")
@@ -273,18 +318,14 @@ def install_symlink(target_name: str | None = None) -> tuple[Path, Path | None]:
     if not target.is_dir():
         raise FileNotFoundError(T("err.target_missing", path=target))
     backup = backup_mods()
-    if MOD_LINK.is_symlink():
-        MOD_LINK.unlink()
-    MOD_LINK.symlink_to(target, target_is_directory=True)
+    remove_link(MOD_LINK)
+    create_link(target, MOD_LINK)
     return target, backup
 
 
 def remove_symlink() -> bool:
-    """Drop the Mods symlink (only a symlink, never a real folder)."""
-    if MOD_LINK.is_symlink():
-        MOD_LINK.unlink()
-        return True
-    return False
+    """Drop the Mods link (only the link, never a real folder)."""
+    return remove_link(MOD_LINK)
 
 
 def activate(name: str) -> None:
@@ -292,11 +333,10 @@ def activate(name: str) -> None:
     target = MOD_BASE / name
     if not target.is_dir():
         raise FileNotFoundError(T("err.target_missing", path=target))
-    if MOD_LINK.exists() and not MOD_LINK.is_symlink():
+    if MOD_LINK.exists() and not is_link(MOD_LINK):
         raise IsADirectoryError(T("err.is_directory"))
-    if MOD_LINK.is_symlink():
-        MOD_LINK.unlink()
-    MOD_LINK.symlink_to(target, target_is_directory=True)
+    remove_link(MOD_LINK)
+    create_link(target, MOD_LINK)
 
 
 # ------------------------------------------------------------------------ UI
@@ -505,13 +545,13 @@ class PathsDialog(QDialog):
             problems.append(T("paths.missing_base"))
 
         link = game / "Mods"
-        is_link = link.is_symlink()
+        linked = is_link(link)
         warning = ""
-        if game.is_dir() and link.exists() and not is_link:
+        if game.is_dir() and link.exists() and not linked:
             warning = T("paths.warn_real_dir")
         if hasattr(self, "create_link_button"):
-            self.create_link_button.setEnabled(game.is_dir() and base.is_dir() and not is_link)
-            self.remove_link_button.setEnabled(is_link)
+            self.create_link_button.setEnabled(game.is_dir() and base.is_dir() and not linked)
+            self.remove_link_button.setEnabled(linked)
 
         if problems:
             self._set_hint("banner", " ".join(problems))
@@ -824,6 +864,14 @@ class SwitcherWindow(QDialog):
                 break
 
 
+def _say(text: str) -> None:
+    """Report for the test hooks; a windowed build has no stdout at all."""
+    if sys.stdout is None:
+        return
+    print(text)
+    sys.stdout.flush()
+
+
 def main(argv: list[str]) -> int:
     app = QApplication.instance() or QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
@@ -839,11 +887,9 @@ def main(argv: list[str]) -> int:
     if auto:
         window.select(auto)
         window.apply()
-        print(window.status.text() or "no action")
-        sys.stdout.flush()
+        _say(window.status.text() or "no action")
         app.processEvents()
-        print("active now:", (active_target() or Path("-")))
-        sys.stdout.flush()
+        _say("active now: %s" % (active_target() or Path("-")))
         window.deleteLater()
         app.processEvents()
         os._exit(0)

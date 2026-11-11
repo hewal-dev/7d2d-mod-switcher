@@ -12,7 +12,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Qt's offscreen backend crashes at exit on Windows (PySide6 6.12), the normal
+# plugin works there without a visible desktop, so only force offscreen elsewhere.
+if sys.platform != "win32":
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["MODSWITCH_NO_ASK"] = "1"  # no blocking popup during tests
 os.environ.setdefault("MODSWITCH_LANG", "de")  # the checks below assert German texts
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -126,8 +129,7 @@ def test_symlink(tmp: Path) -> None:
     mod = load(tmp)
 
     real = tmp / "game" / "Mods"
-    if real.is_symlink():
-        real.unlink()
+    mod.remove_symlink()
     real.mkdir(parents=True, exist_ok=True)
     (real / "keep.txt").write_text("nicht löschen")
 
@@ -248,26 +250,28 @@ def main() -> int:
         window.select("02 Overhaul")
         check("Auswahl aktiviert Knopf", window.apply_button.isEnabled(), True)
         window.apply()
-        check("Symlink gesetzt", os.path.realpath(mod.MOD_LINK),
-              str(tmp / "mods" / "02 Overhaul"))
+        check("Symlink gesetzt", mod.active_target(), tmp / "mods" / "02 Overhaul")
         check("Statusmeldung", window.status.text(), "Aktiviert: 02 Overhaul")
         check("Aktiver Eintrag erkannt", mod.active_target().name, "02 Overhaul")
         check("Kein zweiter Klick nötig", window.apply_button.isEnabled(), False)
 
-        window.show()
-        app.processEvents()
-        out = Path("/tmp/modswitch-fenster.png")
-        window.grab().save(str(out))
-        print(f"ok  Screenshot {out}")
+        if os.environ.get("MODSWITCH_NO_SHOT") != "1":
+            # grab() is the one call that crashes Qt's offscreen backend on
+            # Windows at exit; MODSWITCH_NO_SHOT=1 skips it for CI runs there.
+            window.show()
+            app.processEvents()
+            out = Path(tempfile.gettempdir()) / "modswitch-fenster.png"
+            window.grab().save(str(out))
+            print(f"ok  Screenshot {out}")
 
         # switching again to another set replaces the link instead of adding one
         window.select("02 Overhaul")
         window.apply()
         check("Zweiter Wechsel", mod.active_target().name, "02 Overhaul")
-        check("Nur ein Link", mod.MOD_LINK.is_symlink(), True)
+        check("Nur ein Link", mod.is_link(mod.MOD_LINK), True)
 
         # safety: a real directory named Mods must block everything
-        (tmp / "game" / "Mods").unlink()
+        mod.remove_symlink()
         (tmp / "game" / "Mods").mkdir()
         real = Path(tmp / "game" / "Mods" / "keep.txt")
         real.write_text("nicht löschen")

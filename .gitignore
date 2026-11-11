@@ -1,6 +1,10 @@
 __pycache__/
 *.py[cod]
-*.AppImage
 .venv/
+
+# build output — the AppImage and the Windows .exe live in the releases instead
+*.AppImage
 build/
 dist/
+*.spec
+*.exe
