@@ -1,8 +1,9 @@
 [Desktop Entry]
 Type=Application
 Name=7D2D Mod Switcher
-Comment=Mod-Ordner für 7 Days to Die umschalten
-Exec=python3 /PFAD/ZU/7d2d-mod-switcher/mod_switcher.py
+Comment=Switch the mod folder of 7 Days to Die
+Comment[de]=Mod-Ordner für 7 Days to Die umschalten
+Exec=python3 /PATH/TO/7d2d-mod-switcher/mod_switcher.py
 Icon=7d2d-mod-switcher
 Categories=Game;Utility;
 Terminal=false

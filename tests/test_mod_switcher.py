@@ -6,6 +6,7 @@ MODSWITCH_GAME_DIR / MODSWITCH_MOD_BASE before the module is imported.
 
 import importlib
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -13,7 +14,10 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["MODSWITCH_NO_ASK"] = "1"  # no blocking popup during tests
+os.environ.setdefault("MODSWITCH_LANG", "de")  # the checks below assert German texts
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import i18n as i18n_mod  # noqa: E402
 
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
@@ -160,6 +164,64 @@ def test_symlink(tmp: Path) -> None:
     check("Anlegen gesperrt bei Symlink", dialog2.create_link_button.isEnabled(), False)
     check("Entfernen moeglich bei Symlink", dialog2.remove_link_button.isEnabled(), True)
 
+def test_language(tmp: Path) -> None:
+    """English/German switcher, and the remembered choice."""
+    print("--- Sprache ---")
+    cfg = tmp / "config" / "config.json"
+    os.environ["MODSWITCH_CONFIG"] = str(cfg)
+    os.environ["MODSWITCH_GAME_DIR"] = str(tmp / "game")
+    os.environ["MODSWITCH_MOD_BASE"] = str(tmp / "mods")
+
+    # detect_language: saved choice > env > locale
+    sample = load(tmp)
+    check("Umgebung wählt Englisch", i18n_mod.detect_language(None, "en"), "en")
+    check("Umgebung wählt Deutsch", i18n_mod.detect_language(None, "de_DE.UTF-8"), "de")
+    check("Gespeicherte Wahl schlägt Umgebung", i18n_mod.detect_language("en", "de"), "en")
+    check("Unbekannte Angabe fällt auf Systemsprache",
+          i18n_mod.detect_language("xx", "yy") in i18n_mod.LANGUAGES, True)
+
+    # start in English, switch to German, both are remembered
+    os.environ["MODSWITCH_LANG"] = "en"
+    mod = load(tmp)
+    check("Startsprache Englisch", mod.T.language, "en")
+    window = mod.SwitcherWindow()
+    check("Knopf englisch", window.apply_button.text(), "Activate")
+    check("Sprachknopf aktiv", window.lang_buttons["en"].property("aktiv"), "true")
+    window.set_language("de")
+    check("Sprache umgeschaltet", mod.T.language, "de")
+    check("Knopf deutsch", window.apply_button.text(), "Aktivieren")
+    check("Englisch nicht mehr aktiv", window.lang_buttons["en"].property("aktiv"), "false")
+    check("Sprache in Konfig gespeichert", mod.read_config().get("language"), "de")
+    check("Spielpfad blieb erhalten", mod.read_config().get("game_dir"), str(tmp / "game"))
+
+    # a restart without the env override picks the saved language up again
+    os.environ.pop("MODSWITCH_LANG", None)
+    again = load(tmp)
+    check("Sprache beim Neustart gemerkt", again.T.language, "de")
+    check("Texte beim Neustart deutsch", again.SwitcherWindow().apply_button.text(), "Aktivieren")
+
+    # English strings really are English (nothing left in German)
+    again.T.language = "en"
+    german = re.compile(r"[äöüÄÖÜß]|\bOrdner\b|\baktiv\b|Spiel")
+    for key, values in (
+        ("header.none", {"count": 3}),
+        ("header.active", {"name": "02 Overhaul", "count": 3}),
+        ("button.already_active", {}),
+        ("paths.found", {}),
+        ("badge", {}),
+        ("err.real_dir", {}),
+    ):
+        english = again.T(key, **values)
+        again.T.language = "de"
+        german_text = again.T(key, **values)
+        again.T.language = "en"
+        check(f"Englischer Text {key}", bool(german.search(english)), False)
+        check(f"Deutsch weicht ab {key}", german_text != english, True)
+    check("Englischer Text Beispiel", again.T("header.none", count=3),
+          "No mod folder active · 3 available")
+    os.environ["MODSWITCH_LANG"] = "de"
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication(["test"])
     tmp = Path(tempfile.mkdtemp(prefix="modswitch-"))
@@ -221,6 +283,7 @@ def main() -> int:
 
         test_paths(tmp)
         test_symlink(tmp)
+        test_language(tmp)
         print("FEHLGESCHLAGEN: " + ", ".join(failures) if failures else "Alle Prüfungen grün")
         # PySide6 crashes while destroying widgets at interpreter shutdown; exit directly
         # so the test result is not masked by a teardown segfault.

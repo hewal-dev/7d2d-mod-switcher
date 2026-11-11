@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
-"""7D2D Mod Switcher als kleine Anwendung (PySide6, dunkle Oberfläche).
+"""7D2D Mod Switcher — small desktop app (PySide6, dark UI, English/German).
 
-Aufgabe: der Ordner `<Spiel>/7 Days To Die/Mods` ist ein Symlink auf einen der
-Mod-Sätze im eigenen Mod-Ordner. Die Anwendung zeigt alle Sätze, markiert den
-aktiven und schaltet den Symlink um. Sie verweigert den Eingriff, wenn `Mods`
-ein echtes Verzeichnis ist (dann würde gelöscht, was nicht gelöscht werden darf).
+Task: `<game>/Mods` is a symlink pointing at one of the mod sets in your own mod
+folder. The app lists the sets, marks the active one and switches the symlink.
+It never deletes anything: a real `Mods` folder is renamed as a backup first.
 
-Beide Pfade sind einstellbar und werden gemerkt:
-  * Spielordner  — Standard: automatisch gefundene Steam-Installation
-  * Mod-Ordner   — Standard: `~/7 Days`, sonst frei wählbar
-Gespeichert in `~/.config/7d2d-mod-switcher/config.json`.
+Both paths and the language are remembered in
+`~/.config/7d2d-mod-switcher/config.json` (Windows: `%APPDATA%\\7d2d-mod-switcher\\config.json`).
 
-Für Tests und Sonderfälle überschreiben Umgebungsvariablen alles:
-MODSWITCH_GAME_DIR, MODSWITCH_MOD_BASE, MODSWITCH_CONFIG, MODSWITCH_UI_KIT.
+Environment overrides (tests, special cases):
+MODSWITCH_GAME_DIR, MODSWITCH_MOD_BASE, MODSWITCH_CONFIG, MODSWITCH_UI_KIT, MODSWITCH_LANG.
 """
 
 from __future__ import annotations
@@ -45,8 +42,9 @@ try:
     )
 except ImportError:  # pragma: no cover - only hits a machine without PySide6
     print(
-        "PySide6 fehlt. Installieren mit:  sudo pacman -S pyside6\n"
-        "(oder: python3 -m pip install --user PySide6)",
+        "PySide6 fehlt / PySide6 is missing.\n"
+        "  Arch/CachyOS:  sudo pacman -S pyside6\n"
+        "  otherwise:     python3 -m pip install --user PySide6",
         file=sys.stderr,
     )
     raise SystemExit(2)
@@ -54,22 +52,29 @@ except ImportError:  # pragma: no cover - only hits a machine without PySide6
 APP_DIR = Path(__file__).resolve().parent
 APP_NAME = "7D2D Mod Switcher"
 LOGO = APP_DIR / "assets" / "mod-switcher-logo.png"
-CONFIG_PATH = Path(
-    os.environ.get(
-        "MODSWITCH_CONFIG", Path.home() / ".config" / "7d2d-mod-switcher" / "config.json"
-    )
-)
 GAME_FOLDER_NAME = "7 Days To Die"
+
+
+def _config_path() -> Path:
+    override = os.environ.get("MODSWITCH_CONFIG")
+    if override:
+        return Path(override)
+    appdata = os.environ.get("APPDATA")  # Windows
+    if appdata:
+        return Path(appdata) / "7d2d-mod-switcher" / "config.json"
+    return Path.home() / ".config" / "7d2d-mod-switcher" / "config.json"
+
+
+CONFIG_PATH = _config_path()
 
 
 def _ui_kit_dir() -> Path | None:
     """Find the shared widget style: env, bundled copy next to the app, home copy."""
-    candidates = [
+    for candidate in (
         os.environ.get("MODSWITCH_UI_KIT"),
         APP_DIR / "ui_kit",
         Path.home() / "AI" / "ui-kit",
-    ]
-    for candidate in candidates:
+    ):
         if candidate and (Path(candidate) / "ui_style.py").is_file():
             return Path(candidate)
     return None
@@ -78,16 +83,48 @@ def _ui_kit_dir() -> Path | None:
 UI_KIT = _ui_kit_dir()
 if UI_KIT is not None and str(UI_KIT) not in sys.path:
     sys.path.insert(0, str(UI_KIT))
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
 
 from ui_style import ASSETS, styled  # noqa: E402
 
+from i18n import LANGUAGES, Translator, detect_language  # noqa: E402
 
-# --------------------------------------------------------------------- paths
+
+# ------------------------------------------------------------------- settings
+def read_config() -> dict:
+    if not CONFIG_PATH.is_file():
+        return {}
+    try:
+        data = json.loads(CONFIG_PATH.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_config(game_dir: Path, mod_base: Path, language: str | None = None) -> None:
+    data = {"game_dir": str(game_dir), "mod_base": str(mod_base)}
+    if language:
+        data["language"] = language
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(data, indent=2) + "\n")
+
+
+T = Translator(detect_language(read_config().get("language")))
+
+
+# ---------------------------------------------------------------------- paths
 def default_steam_roots() -> list[Path]:
+    home = Path.home()
+    if sys.platform.startswith("win"):
+        return [
+            Path(os.environ.get("PROGRAMFILES(X86)", "C:/Program Files (x86)")) / "Steam",
+            Path(os.environ.get("PROGRAMFILES", "C:/Program Files")) / "Steam",
+        ]
     return [
-        Path.home() / ".local" / "share" / "Steam",
-        Path.home() / ".steam" / "steam",
-        Path.home() / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam",
+        home / ".local" / "share" / "Steam",
+        home / ".steam" / "steam",
+        home / ".var" / "app" / "com.valvesoftware.Steam" / ".local" / "share" / "Steam",
     ]
 
 
@@ -111,7 +148,7 @@ def steam_libraries(roots: list[Path] | None = None) -> list[Path]:
             if match:
                 found.append(Path(match.group(1)))
                 continue
-            match = re.search(r'"\d+"\s+"(/[^"]+)"', line)  # older VDF layout
+            match = re.search(r'"\d+"\s+"([A-Za-z]:[^"]+)"', line)  # older VDF layout
             if match:
                 found.append(Path(match.group(1)))
     unique: list[Path] = []
@@ -132,23 +169,6 @@ def detect_game_dir(libraries: list[Path] | None = None) -> Path | None:
 
 def default_mod_base() -> Path:
     return Path.home() / "7 Days"
-
-
-def read_config() -> dict:
-    if not CONFIG_PATH.is_file():
-        return {}
-    try:
-        data = json.loads(CONFIG_PATH.read_text())
-    except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
-def write_config(game_dir: Path, mod_base: Path) -> None:
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(
-        json.dumps({"game_dir": str(game_dir), "mod_base": str(mod_base)}, indent=2) + "\n"
-    )
 
 
 GAME_DIR = Path()
@@ -172,7 +192,7 @@ def resolve_paths() -> tuple[Path, Path]:
     base = Path(base_env) if base_env else Path(config.get("mod_base") or "")
     if not game.name:
         game = detect_game_dir() or (
-            Path.home() / ".local" / "share" / "Steam" / "steamapps" / "common" / GAME_FOLDER_NAME
+            default_steam_roots()[0] / "steamapps" / "common" / GAME_FOLDER_NAME
         )
     if not base.name:
         base = Path(config.get("mod_base") or default_mod_base())
@@ -182,7 +202,7 @@ def resolve_paths() -> tuple[Path, Path]:
 apply_paths(*resolve_paths())
 
 
-# --------------------------------------------------------------------- logic
+# ---------------------------------------------------------------------- logic
 def active_target() -> Path | None:
     """Resolved target of the Mods symlink, or None when nothing is linked."""
     if not MOD_LINK.is_symlink():
@@ -207,31 +227,6 @@ def mod_count(path: Path) -> int:
         return 0
 
 
-def check_state() -> str | None:
-    """Blocking problems, same checks as the original shell script."""
-    if not GAME_DIR.is_dir():
-        return (
-            "Spielordner nicht gefunden:\n"
-            f"{GAME_DIR}\n\n"
-            "Über „Pfade…" + '"' + " den Ordner „7 Days To Die" + '"' + " auswählen."
-        )
-    if not MOD_BASE.is_dir():
-        return (
-            "Mod-Ordner nicht gefunden:\n"
-            f"{MOD_BASE}\n\n"
-            "Über „Pfade…" + '"' + " den Ordner mit den eigenen Mod-Sätzen auswählen."
-        )
-    if mods_state() == "directory":
-        return (
-            "Der Ordner Mods im Spiel ist ein echtes Verzeichnis.\n"
-            "Über „Symlink anlegen“ (oder beim Start) wird er gesichert und umgestellt; "
-            "von Hand wird dabei nichts gelöscht."
-        )
-    if not mod_sets():
-        return f"Keine Mod-Ordner gefunden unter:\n{MOD_BASE}"
-    return None
-
-
 def mods_state() -> str:
     """'symlink', 'directory' (real folder) or 'missing'."""
     if MOD_LINK.is_symlink():
@@ -239,6 +234,19 @@ def mods_state() -> str:
     if MOD_LINK.exists():
         return "directory"
     return "missing"
+
+
+def check_state() -> str | None:
+    """Blocking problem for the UI, or None when switching can work."""
+    if not GAME_DIR.is_dir():
+        return T("err.game_missing", path=GAME_DIR)
+    if not MOD_BASE.is_dir():
+        return T("err.base_missing", path=MOD_BASE)
+    if mods_state() == "directory":
+        return T("err.real_dir")
+    if not mod_sets():
+        return T("err.no_sets", path=MOD_BASE)
+    return None
 
 
 def backup_mods() -> Path | None:
@@ -259,15 +267,15 @@ def install_symlink(target_name: str | None = None) -> tuple[Path, Path | None]:
     """Create the Mods symlink; a real Mods folder is preserved as a backup."""
     sets = mod_sets()
     if not sets:
-        raise FileNotFoundError(f"Keine Mod-Ordner gefunden unter: {MOD_BASE}")
+        raise FileNotFoundError(T("err.no_sets", path=MOD_BASE))
     name = target_name or sets[0].name
     target = MOD_BASE / name
     if not target.is_dir():
-        raise FileNotFoundError(f"Zielordner existiert nicht: {target}")
+        raise FileNotFoundError(T("err.target_missing", path=target))
     backup = backup_mods()
     if MOD_LINK.is_symlink():
         MOD_LINK.unlink()
-    MOD_LINK.symlink_to(target)
+    MOD_LINK.symlink_to(target, target_is_directory=True)
     return target, backup
 
 
@@ -280,20 +288,18 @@ def remove_symlink() -> bool:
 
 
 def activate(name: str) -> None:
-    """Point the Mods symlink at MOD_BASE/name, exactly like the shell script."""
+    """Point the Mods symlink at MOD_BASE/name."""
     target = MOD_BASE / name
     if not target.is_dir():
-        raise FileNotFoundError(f"Zielordner existiert nicht: {target}")
+        raise FileNotFoundError(T("err.target_missing", path=target))
     if MOD_LINK.exists() and not MOD_LINK.is_symlink():
-        raise IsADirectoryError(
-            "Der Ordner Mods ist ein echtes Verzeichnis. Über „Symlink anlegen“ "
-            "wird er gesichert und durch einen Symlink ersetzt."
-        )
+        raise IsADirectoryError(T("err.is_directory"))
     if MOD_LINK.is_symlink():
         MOD_LINK.unlink()
-    MOD_LINK.symlink_to(target)
+    MOD_LINK.symlink_to(target, target_is_directory=True)
 
 
+# ------------------------------------------------------------------------ UI
 EXTRA_QSS = """
 QLabel#badge {
     background: #1f5c3c; color: #eafff2; border: 1px solid #34d17b;
@@ -321,6 +327,10 @@ QLineEdit {
 QLineEdit:focus { border: 1px solid #6c98ff; background: #1a1d24; }
 QLabel#warn { color: #ffbd66; font-size: 11px; }
 QLabel#ok { color: #4fd39a; font-size: 11px; }
+QPushButton#lang { min-width: 40px; padding: 4px 10px; font-size: 12px; }
+QPushButton#lang[aktiv="true"] {
+    background: #2b3d64; border: 1px solid #5b8cff; color: #ffffff; font-weight: 600;
+}
 """
 
 if UI_KIT is not None:
@@ -349,53 +359,35 @@ class PathsDialog(QDialog):
 
     def __init__(self, game_dir: Path, mod_base: Path, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Pfade einstellen")
-        self.setStyleSheet(styled() + EXTRA_QSS)
-        self.setMinimumWidth(620)
         self.paths_changed = False
         self.status_text = ""
+        self.setWindowTitle(T("paths.title"))
+        self.setStyleSheet(styled() + EXTRA_QSS)
+        self.setMinimumWidth(660)
         self.game_edit = QLineEdit(str(game_dir))
         self.base_edit = QLineEdit(str(mod_base))
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(22, 20, 22, 16)
         outer.setSpacing(14)
-        title = QLabel("Pfade einstellen")
+        title = QLabel(T("paths.title"))
         title.setObjectName("title")
         outer.addWidget(title)
 
-        outer.addLayout(
-            self._path_row(
-                "Spielordner",
-                "Der Ordner „7 Days To Die" + '"' + " aus der Steam-Installation.",
-                self.game_edit,
-            )
-        )
-        outer.addLayout(
-            self._path_row(
-                "Eigener Mod-Ordner",
-                "Jeder Unterordner dieses Ordners gilt als eigener Mod-Satz.",
-                self.base_edit,
-            )
-        )
+        outer.addLayout(self._path_row(T("paths.game"), T("paths.game_hint"), self.game_edit))
+        outer.addLayout(self._path_row(T("paths.base"), T("paths.base_hint"), self.base_edit))
 
         link_row = QHBoxLayout()
         link_row.setSpacing(8)
-        link_label = QLabel("Ordner „Mods" + '"' + " im Spiel:")
+        link_label = QLabel(T("paths.link_row"))
         link_label.setObjectName("feld")
-        self.create_link_button = QPushButton("Symlink anlegen")
+        self.create_link_button = QPushButton(T("paths.create"))
         self.create_link_button.setCursor(Qt.PointingHandCursor)
-        self.create_link_button.setToolTip(
-            "Ersetzt den Ordner Mods durch einen Symlink auf den gewählten Mod-Satz. "
-            "Ein vorhandener Ordner wird vorher als Sicherung umbenannt."
-        )
+        self.create_link_button.setToolTip(T("paths.create_tip"))
         self.create_link_button.clicked.connect(lambda: self._on_link(True))
-        self.remove_link_button = QPushButton("Symlink entfernen")
+        self.remove_link_button = QPushButton(T("paths.remove"))
         self.remove_link_button.setCursor(Qt.PointingHandCursor)
-        self.remove_link_button.setToolTip(
-            "Entfernt nur den Symlink; das Spiel startet danach ohne Mods. "
-            "Ein gesicherter Original-Ordner bleibt liegen."
-        )
+        self.remove_link_button.setToolTip(T("paths.remove_tip"))
         self.remove_link_button.clicked.connect(lambda: self._on_link(False))
         link_row.addWidget(link_label)
         link_row.addStretch(1)
@@ -411,10 +403,10 @@ class PathsDialog(QDialog):
         outer.addWidget(self._make_divider())
         row = QHBoxLayout()
         row.addStretch(1)
-        cancel = QPushButton("Abbrechen")
+        cancel = QPushButton(T("paths.cancel"))
         cancel.setCursor(Qt.PointingHandCursor)
         cancel.clicked.connect(self.reject)
-        self.save_button = QPushButton("Speichern")
+        self.save_button = QPushButton(T("paths.save"))
         self.save_button.setObjectName("primary")
         self.save_button.setCursor(Qt.PointingHandCursor)
         self.save_button.setDefault(True)
@@ -434,7 +426,7 @@ class PathsDialog(QDialog):
         name.setObjectName("feld")
         line = QHBoxLayout()
         line.setSpacing(8)
-        browse = QPushButton("Durchsuchen…")
+        browse = QPushButton(T("paths.browse"))
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(lambda: self._browse(edit))
         line.addWidget(edit, 1)
@@ -447,15 +439,29 @@ class PathsDialog(QDialog):
         box.addWidget(note)
         return box
 
-    def _confirm(self, title: str, text: str, ok: str) -> bool:
+    def _browse(self, edit: QLineEdit) -> None:
+        start = edit.text() or str(Path.home())
+        chosen = QFileDialog.getExistingDirectory(self, T("dialog.choose_folder"), start)
+        if chosen:
+            edit.setText(chosen)
+
+    def _confirm(self, title: str, text: str, informative: str = "") -> bool:
         box = QMessageBox(self)
         box.setWindowTitle(title)
         box.setIcon(QMessageBox.Question)
         box.setText(text)
-        yes = box.addButton(ok, QMessageBox.AcceptRole)
-        box.addButton("Nein", QMessageBox.RejectRole)
+        if informative:
+            box.setInformativeText(informative)
+        yes = box.addButton(T("ask.yes"), QMessageBox.AcceptRole)
+        box.addButton(T("ask.no"), QMessageBox.RejectRole)
         box.exec()
         return box.clickedButton() is yes
+
+    def _set_hint(self, style: str, text: str) -> None:
+        self.hint.setObjectName(style)
+        self.hint.setText(text)
+        self.hint.style().unpolish(self.hint)
+        self.hint.style().polish(self.hint)
 
     def _on_link(self, create: bool) -> None:
         game = Path(self.game_edit.text()).expanduser()
@@ -463,82 +469,56 @@ class PathsDialog(QDialog):
         if not game.is_dir() or not base.is_dir():
             return
         apply_paths(game, base)
-        write_config(game, base)
+        write_config(game, base, T.language)
         try:
             if create:
-                sets = mod_sets()
-                if not sets:
-                    raise FileNotFoundError(f"Keine Mod-Ordner gefunden unter: {base}")
+                if not mod_sets():
+                    raise FileNotFoundError(T("err.no_sets", path=base))
                 if not self._confirm(
-                    "Symlink für Mods anlegen?",
-                    "Symlink für Mods anlegen?\nKann jederzeit in der App rückgängig "
-                    "gemacht werden.\n\nEin vorhandener Ordner wird vorher als "
-                    "„Mods-Original-<Datum>" + '"' + " gesichert.",
-                    "Ja",
+                    T("ask.create.title"), T("ask.create.text"), T("ask.create.info")
                 ):
                     return
                 target, backup = install_symlink()
-                message = f"Symlink auf „{target.name}" + '"' + " angelegt."
-                if backup:
-                    message += f" Original gesichert als „{backup.name}" + '"' + "."
-            else:
-                if not self._confirm(
-                    "Symlink entfernen?",
-                    "Symlink für Mods entfernen?\nDas Spiel startet danach ohne Mods. "
-                    "Kann jederzeit wieder angelegt werden.",
-                    "Ja",
-                ):
-                    return
                 message = (
-                    "Symlink entfernt." if remove_symlink() else "Es war kein Symlink vorhanden."
+                    T("paths.msg.created_backup", name=target.name, backup=backup.name)
+                    if backup
+                    else T("paths.msg.created", name=target.name)
                 )
+            else:
+                if not self._confirm(T("ask.remove.title"), T("ask.remove.text")):
+                    return
+                message = T("paths.msg.removed") if remove_symlink() else T("paths.msg.no_link")
         except Exception as exc:
-            self.hint.setObjectName("banner")
-            self.hint.setText(str(exc))
-            self.hint.style().unpolish(self.hint)
-            self.hint.style().polish(self.hint)
+            self._set_hint("banner", str(exc))
             return
         self.paths_changed = True
         self.status_text = message
         self._validate()
-
-    def _browse(self, edit: QLineEdit) -> None:
-        start = edit.text() or str(Path.home())
-        chosen = QFileDialog.getExistingDirectory(self, "Ordner auswählen", start)
-        if chosen:
-            edit.setText(chosen)
 
     def _validate(self) -> None:
         game = Path(self.game_edit.text()).expanduser()
         base = Path(self.base_edit.text()).expanduser()
         problems = []
         if not game.is_dir():
-            problems.append("Spielordner existiert nicht.")
+            problems.append(T("paths.missing_game"))
         if not base.is_dir():
-            problems.append("Mod-Ordner existiert nicht.")
+            problems.append(T("paths.missing_base"))
+
         link = game / "Mods"
         is_link = link.is_symlink()
-        is_dir = link.exists() and not is_link
         warning = ""
-        if is_dir:
-            warning = (
-                "„Mods" + '"' + " ist ein echtes Verzeichnis — über „Symlink anlegen" + '"'
-                + " wird es gesichert und umgestellt."
-            )
+        if game.is_dir() and link.exists() and not is_link:
+            warning = T("paths.warn_real_dir")
         if hasattr(self, "create_link_button"):
             self.create_link_button.setEnabled(game.is_dir() and base.is_dir() and not is_link)
             self.remove_link_button.setEnabled(is_link)
+
         if problems:
-            self.hint.setObjectName("banner")
-            self.hint.setText(" ".join(problems))
+            self._set_hint("banner", " ".join(problems))
         elif warning:
-            self.hint.setObjectName("warn")
-            self.hint.setText(warning)
+            self._set_hint("warn", warning)
         else:
-            self.hint.setObjectName("ok")
-            self.hint.setText("Beide Ordner gefunden.")
-        self.hint.style().unpolish(self.hint)
-        self.hint.style().polish(self.hint)
+            self._set_hint("ok", T("paths.found"))
         self.save_button.setEnabled(not problems)
 
     def values(self) -> tuple[Path, Path]:
@@ -558,11 +538,10 @@ class PathsDialog(QDialog):
 class SwitcherWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(APP_NAME)
         if LOGO.is_file():
             self.setWindowIcon(QIcon(str(LOGO)))
         self.setStyleSheet(styled() + EXTRA_QSS)
-        self.setMinimumSize(600, 460)
+        self.setMinimumSize(640, 490)
         self.setWindowModality(Qt.NonModal)
         self.error = check_state()
         self.radios: dict[str, QRadioButton] = {}
@@ -592,21 +571,35 @@ class SwitcherWindow(QDialog):
         outer.addWidget(self._make_divider())
         outer.addLayout(self._build_footer())
 
-        self.reload()
+        self.retranslate()
         if mods_state() == "directory" and os.environ.get("MODSWITCH_NO_ASK") != "1":
             QTimer.singleShot(0, self.offer_symlink)
 
     # ---------------------------------------------------------------- layout
-    def _build_header(self) -> QVBoxLayout:
+    def _build_header(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(10)
         box = QVBoxLayout()
         box.setSpacing(3)
-        title = QLabel(APP_NAME)
-        title.setObjectName("title")
+        self.title_label = QLabel(APP_NAME)
+        self.title_label.setObjectName("title")
         self.subtitle = QLabel()
         self.subtitle.setObjectName("subtitle")
-        box.addWidget(title)
+        box.addWidget(self.title_label)
         box.addWidget(self.subtitle)
-        return box
+        row.addLayout(box, 1)
+
+        self.lang_buttons: dict[str, QPushButton] = {}
+        for code in LANGUAGES:
+            button = QPushButton(code.upper())
+            button.setObjectName("lang")
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setToolTip(T("lang.tip"))
+            button.clicked.connect(lambda _=False, c=code: self.set_language(c))
+            self.lang_buttons[code] = button
+            row.addWidget(button)
+        return row
 
     def _build_list(self) -> QScrollArea:
         area = QScrollArea()
@@ -622,17 +615,16 @@ class SwitcherWindow(QDialog):
 
     def _build_footer(self) -> QHBoxLayout:
         row = QHBoxLayout()
-        self.reload_button = QPushButton("Neu einlesen")
+        self.reload_button = QPushButton()
         self.reload_button.setCursor(Qt.PointingHandCursor)
         self.reload_button.clicked.connect(self.reload)
-        self.paths_button = QPushButton("Pfade…")
+        self.paths_button = QPushButton()
         self.paths_button.setCursor(Qt.PointingHandCursor)
-        self.paths_button.setToolTip("Spielordner und eigenen Mod-Ordner einstellen.")
         self.paths_button.clicked.connect(self.edit_paths)
-        close = QPushButton("Schließen")
-        close.setCursor(Qt.PointingHandCursor)
-        close.clicked.connect(self.reject)
-        self.apply_button = QPushButton("Aktivieren")
+        self.close_button = QPushButton()
+        self.close_button.setCursor(Qt.PointingHandCursor)
+        self.close_button.clicked.connect(self.reject)
+        self.apply_button = QPushButton()
         self.apply_button.setObjectName("primary")
         self.apply_button.setCursor(Qt.PointingHandCursor)
         self.apply_button.setDefault(True)
@@ -641,7 +633,7 @@ class SwitcherWindow(QDialog):
         row.addWidget(self.reload_button)
         row.addWidget(self.paths_button)
         row.addStretch(1)
-        row.addWidget(close)
+        row.addWidget(self.close_button)
         row.addWidget(self.apply_button)
         return row
 
@@ -652,27 +644,51 @@ class SwitcherWindow(QDialog):
         line.setFixedHeight(1)
         return line
 
+    # ------------------------------------------------------------- language
+    def set_language(self, code: str) -> None:
+        if code == T.language:
+            self._sync_language_buttons()
+            return
+        T.language = code
+        write_config(GAME_DIR, MOD_BASE, T.language)
+        for button in self.lang_buttons.values():
+            button.setToolTip(T("lang.tip"))
+        self.retranslate()
+
+    def _sync_language_buttons(self) -> None:
+        for code, button in self.lang_buttons.items():
+            active = code == T.language
+            button.setChecked(active)
+            button.setProperty("aktiv", "true" if active else "false")
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    def retranslate(self) -> None:
+        self.setWindowTitle(APP_NAME)
+        self.reload_button.setText(T("button.reload"))
+        self.reload_button.setToolTip(T("tip.reload"))
+        self.paths_button.setText(T("button.paths"))
+        self.paths_button.setToolTip(T("tip.paths"))
+        self.close_button.setText(T("button.close"))
+        self.apply_button.setText(T("button.activate"))
+        self._sync_language_buttons()
+        self.reload()
+
     # ------------------------------------------------------------- behaviour
     def offer_symlink(self) -> bool:
         """Offer to replace a real Mods folder with the symlink (never deletes data)."""
         if mods_state() != "directory":
             return False
         box = QMessageBox(self)
-        box.setWindowTitle("Symlink für Mods anlegen?")
+        box.setWindowTitle(T("ask.create.title"))
         box.setIcon(QMessageBox.Question)
-        box.setText(
-            "Symlink für Mods anlegen?\n"
-            "Kann jederzeit in der App rückgängig gemacht werden."
-        )
-        box.setInformativeText(
-            "Der vorhandene Ordner bleibt erhalten und wird vorher als "
-            "„Mods-Original-<Datum>" + '"' + " gesichert."
-        )
-        yes = box.addButton("Ja", QMessageBox.AcceptRole)
-        box.addButton("Nein", QMessageBox.RejectRole)
+        box.setText(T("ask.create.text"))
+        box.setInformativeText(T("ask.create.info"))
+        yes = box.addButton(T("ask.yes"), QMessageBox.AcceptRole)
+        box.addButton(T("ask.no"), QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() is not yes:
-            self.status.setText("Unverändert — der Ordner Mods bleibt, wie er ist.")
+            self.status.setText(T("status.unchanged"))
             return False
         try:
             target, backup = install_symlink()
@@ -681,9 +697,9 @@ class SwitcherWindow(QDialog):
             self.banner.setVisible(True)
             return False
         self.reload()
-        message = f"Symlink angelegt auf „{target.name}" + '"' + "."
+        message = T("status.link_created", name=target.name)
         if backup:
-            message += f" Original gesichert als „{backup.name}" + '"' + "."
+            message += T("status.backup", name=backup.name)
         self.status.setText(message)
         return True
 
@@ -699,10 +715,10 @@ class SwitcherWindow(QDialog):
             return False
         game, base = dialog.values()
         apply_paths(game, base)
-        write_config(game, base)
+        write_config(game, base, T.language)
         self.reload()
         if not dialog.paths_changed:
-            self.status.setText("Pfade gespeichert.")
+            self.status.setText(T("status.paths_saved"))
         return True
 
     def reload(self) -> None:
@@ -741,30 +757,30 @@ class SwitcherWindow(QDialog):
             self.radios[folder.name] = radio
             self.rows[folder.name] = card
 
-            count = QLabel(f"{mod_count(folder)} Mods")
+            count = QLabel(T("count", count=mod_count(folder)))
             count.setObjectName("count")
 
             inner.addWidget(radio)
             inner.addStretch(1)
             if is_active:
-                badge = QLabel("AKTIV")
+                badge = QLabel(T("badge"))
                 badge.setObjectName("badge")
                 inner.addWidget(badge)
             inner.addWidget(count)
             self.list_layout.insertWidget(self.list_layout.count() - 1, card)
 
         self.apply_button.setEnabled(False)
-        self.apply_button.setText("Aktivieren")
+        self.apply_button.setText(T("button.activate"))
         self.banner.setVisible(bool(self.error))
         if self.error:
             self.banner.setText(self.error)
         elif active_name:
-            self.subtitle.setText(f"Aktiv: {active_name} · {len(sets)} Mod-Ordner")
+            self.subtitle.setText(T("header.active", name=active_name, count=len(sets)))
         else:
-            self.subtitle.setText(f"Kein Mod-Ordner aktiv · {len(sets)} verfügbar")
+            self.subtitle.setText(T("header.none", count=len(sets)))
 
-        self.path_label.setText(f"Mod-Ordner: {MOD_BASE}")
-        self.path_label.setToolTip(f"Spiel: {GAME_DIR}\nMod-Sätze: {MOD_BASE}")
+        self.path_label.setText(T("path.base", path=MOD_BASE))
+        self.path_label.setToolTip(T("path.tooltip", game=GAME_DIR, base=MOD_BASE))
 
     def selected(self) -> str | None:
         checked = self.group.checkedButton() if hasattr(self, "group") else None
@@ -777,11 +793,11 @@ class SwitcherWindow(QDialog):
         name = self.selected()
         schon_aktiv = bool(name) and name == (aktive.name if aktive else "")
         self.apply_button.setEnabled(bool(name) and not schon_aktiv)
-        self.apply_button.setText("Bereits aktiv" if schon_aktiv else "Aktivieren")
+        self.apply_button.setText(
+            T("button.already_active") if schon_aktiv else T("button.activate")
+        )
         self.apply_button.setToolTip(
-            "Der ausgewählte Mod-Ordner ist bereits aktiv."
-            if schon_aktiv
-            else "Diesen Mod-Ordner für das Spiel aktivieren."
+            T("tip.already_active") if schon_aktiv else T("tip.activate")
         )
 
     def apply(self) -> None:
@@ -794,12 +810,12 @@ class SwitcherWindow(QDialog):
             self.error = str(exc)
             self.banner.setText(str(exc))
             self.banner.setVisible(True)
-            self.status.setText("Nicht umgestellt.")
+            self.status.setText(T("status.not_switched"))
             self.apply_button.setEnabled(False)
             return
         self.reload()
-        self.apply_button.setText("Bereits aktiv")
-        self.status.setText(f"Aktiviert: {name}")
+        self.apply_button.setText(T("button.already_active"))
+        self.status.setText(T("status.activated", name=name))
 
     def select(self, name: str) -> None:
         for folder, radio in self.radios.items():
@@ -819,22 +835,22 @@ def main(argv: list[str]) -> int:
         # Test hook: show the window, then close it through the normal event loop.
         QTimer.singleShot(0, window.reject)
         window.show()
-        code = app.exec()
-        os._exit(code)
+        os._exit(app.exec())
     if auto:
         window.select(auto)
         window.apply()
-        print(window.status.text() or "keine Aktion")
+        print(window.status.text() or "no action")
+        sys.stdout.flush()
         app.processEvents()
-        print("aktiv jetzt:", (active_target() or Path("-")))
+        print("active now:", (active_target() or Path("-")))
+        sys.stdout.flush()
         window.deleteLater()
         app.processEvents()
         os._exit(0)
     window.show()
     # PySide6 crashes while destroying widgets during interpreter shutdown; the
     # window is gone at this point, so exit the process directly.
-    code = app.exec()
-    os._exit(code)
+    os._exit(app.exec())
 
 
 if __name__ == "__main__":

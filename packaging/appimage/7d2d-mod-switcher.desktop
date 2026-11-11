@@ -1,10 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=7D2D Mod Switcher
-Comment=Mod-Ordner für 7 Days to Die umschalten
+Comment=Switch the mod folder of 7 Days to Die
+Comment[de]=Mod-Ordner für 7 Days to Die umschalten
 Exec=AppRun
 Icon=7d2d-mod-switcher
 Categories=Game;Utility;
 Terminal=false
 StartupNotify=true
-X-AppImage-Version=1.0
+X-AppImage-Version=1.1
