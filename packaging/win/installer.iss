@@ -10,7 +10,7 @@
 ; unter „Apps & Features" zum Deinstallieren.
 
 #define AppName "7D2D Mod Switcher"
-#define AppVersion "1.3.0"
+#define AppVersion "1.3.1"
 #define AppExe "7D2D-Mod-Switcher.exe"
 #define AppPublisher "Hewal-dev"
 #define AppUrl "https://github.com/hewal-dev/7d2d-mod-switcher"
@@ -40,7 +40,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 CloseApplications=yes
-VersionInfoVersion=1.3.0.0
+VersionInfoVersion=1.3.1.0
 VersionInfoDescription=7D2D Mod Switcher Setup
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
@@ -61,4 +61,30 @@ Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExe}"; Comment: "Mod-Or
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+; Die im Installer gewaehlte Sprache wird an die App weitergegeben, damit sie
+; direkt in dieser Sprache startet (und sie sich merkt).
+Filename: "{app}\{#AppExe}"; Parameters: "--lang=de"; Languages: de; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Parameters: "--lang=en"; Languages: en; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+{ Die App merkt sich ihre Sprache in %APPDATA%\7d2d-mod-switcher\config.json.
+  Beim ersten Installieren legen wir die Datei mit der hier gewaehlten Sprache an,
+  damit auch der Start ueber das Startmenue sofort richtig ist. Eine vorhandene
+  Konfiguration bleibt unangetastet - dort gilt die Wahl des Benutzers. }
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ConfigDir, ConfigFile, Code: String;
+begin
+  if CurStep <> ssPostInstall then
+    exit;
+  ConfigDir := ExpandConstant('{userappdata}\7d2d-mod-switcher');
+  ConfigFile := ConfigDir + '\config.json';
+  if FileExists(ConfigFile) then
+    exit;
+  if ActiveLanguage() = 'de' then
+    Code := 'de'
+  else
+    Code := 'en';
+  ForceDirectories(ConfigDir);
+  SaveStringToFile(ConfigFile, '{"language": "' + Code + '"}' + #13#10, False);
+end;

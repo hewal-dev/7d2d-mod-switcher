@@ -253,6 +253,16 @@ def test_language(tmp: Path) -> None:
     check("Sprache beim Neustart gemerkt", again.T.language, "de")
     check("Texte beim Neustart deutsch", again.SwitcherWindow().apply_button.text(), "Aktivieren")
 
+    # --lang (der Windows-Installer gibt seine Auswahl so weiter)
+    check("Flag mit Gleichheitszeichen", mod.language_from_argv(["--lang=de"]), "de")
+    check("Flag als zwei Argumente", mod.language_from_argv(["app", "--lang", "en"]), "en")
+    check("Unbekannte Sprache ignoriert", mod.language_from_argv(["--lang=fr"]), None)
+    check("Ohne Flag keine Vorgabe", mod.language_from_argv(["app", "-v"]), None)
+    mod.use_language("en")
+    check("Sprache gemerkt", mod.read_config().get("language"), "en")
+    check("Sprache aktiv", mod.T.language, "en")
+    mod.use_language("de")
+
     # English strings really are English (nothing left in German)
     again.T.language = "en"
     german = re.compile(r"[äöüÄÖÜß]|\bOrdner\b|\baktiv\b|Spiel")

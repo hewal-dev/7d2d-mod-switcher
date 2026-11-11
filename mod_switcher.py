@@ -1074,6 +1074,25 @@ class SwitcherWindow(QDialog):
                 break
 
 
+def language_from_argv(argv: list[str]) -> str | None:
+    """Read --lang=de / --lang de; the Windows installer passes its own choice."""
+    for index, arg in enumerate(argv):
+        value = None
+        if arg.startswith("--lang="):
+            value = arg.split("=", 1)[1]
+        elif arg == "--lang" and index + 1 < len(argv):
+            value = argv[index + 1]
+        if value and value.lower()[:2] in LANGUAGES:
+            return value.lower()[:2]
+    return None
+
+
+def use_language(code: str) -> None:
+    """Switch the interface language and remember it in the config file."""
+    T.language = code
+    write_config(GAME_DIR, MOD_BASE, code)
+
+
 def _say(text: str) -> None:
     """Report for the test hooks; a windowed build has no stdout at all."""
     if sys.stdout is None:
@@ -1083,6 +1102,9 @@ def _say(text: str) -> None:
 
 
 def main(argv: list[str]) -> int:
+    forced = language_from_argv(argv)
+    if forced:
+        use_language(forced)
     app = QApplication.instance() or QApplication(argv[:1])
     app.setApplicationName(APP_NAME)
     if LOGO.is_file():
