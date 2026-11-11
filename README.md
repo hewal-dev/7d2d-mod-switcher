@@ -20,6 +20,21 @@ a single file:
 - never deletes anything: a real `Mods` folder is renamed to `Mods-Original-<date>` first
 - the symlink can be created and removed again from inside the app at any time
 
+## First start
+
+Nothing has to be set up beforehand — the window shows a short checklist instead of an error,
+with the button that fixes each line:
+
+![First start](docs/screenshots/firstrun-en.png)
+
+- **Game folder** — found automatically in your Steam libraries; if not, pick it here or later.
+- **Mod folder** — one click on *Create folder* makes `~/7 Days`; you can also point it anywhere else.
+- **Mod sets** — put one subfolder per mod pack into that folder (e.g. `Vanilla`, `Overhaul`), then
+  press *Reload*.
+
+The checklist disappears as soon as everything is in place. A missing game folder no longer
+blocks anything: you can collect mod sets first and only *Activate* needs the game.
+
 ## Download
 
 Ready-to-run **AppImage** for x86_64: see [Releases](../../releases/latest). Download it, set
@@ -118,7 +133,8 @@ The **Paths…** dialog offers two buttons for this:
 - Click anywhere on a row to select that mod set.
 - **Activate** switches over; if the set is already active the button reads *Already active*.
 - **Reload** re-reads the mod folder (after adding a set).
-- **Paths…** changes game folder, mod folder and the symlink.
+- **Paths…** changes game folder, mod folder and the symlink; a mod folder that does not exist
+  yet can be created right there.
 
 ## Environment variables (tests, special cases)
 
@@ -181,6 +197,21 @@ einen Symlink an, der auf einen von mehreren vorbereiteten Mod-Sätzen zeigt:
 - Klick irgendwo auf einen Balken wählt aus, **Aktivieren** schaltet um
 - löscht nie etwas: ein echter Ordner `Mods` wird vorher zu `Mods-Original-<Datum>` umbenannt
 - Symlink lässt sich jederzeit in der App wieder anlegen und entfernen
+
+### Erster Start
+
+Es muss vorher nichts eingerichtet werden — statt einer Fehlermeldung zeigt das Fenster eine
+kurze Checkliste, und neben jeder offenen Zeile steht der Knopf, der sie erledigt:
+
+![Erster Start](docs/screenshots/firstrun-de.png)
+
+- **Spielordner** — wird in den Steam-Bibliotheken automatisch gefunden, sonst hier oder später wählen.
+- **Mod-Ordner** — ein Klick auf *Ordner anlegen* erzeugt `~/7 Days`; jeder andere Ort geht auch.
+- **Mod-Pakete** — pro Paket einen Unterordner hineinlegen (z. B. `Vanilla`, `Overhaul`), dann
+  *Neu einlesen* drücken.
+
+Sobald alles steht, verschwindet die Checkliste. Ein fehlender Spielordner blockiert nichts mehr:
+Mod-Pakete lassen sich vorbereiten, nur *Aktivieren* braucht das Spiel.
 
 ### Download
 
@@ -276,7 +307,8 @@ Im Dialog **Pfade…** stehen dafür zwei Knöpfe:
 - Klick irgendwo auf einen Balken wählt den Mod-Satz aus.
 - **Aktivieren** schaltet um; ist der Satz schon aktiv, heißt der Knopf „Bereits aktiv“.
 - **Neu einlesen** liest den Mod-Ordner neu (nach dem Anlegen eines Satzes).
-- **Pfade…** ändert Spielordner, Mod-Ordner und den Symlink.
+- **Pfade…** ändert Spielordner, Mod-Ordner und den Symlink; ein noch fehlender Mod-Ordner
+  lässt sich dort direkt anlegen.
 
 ### Umgebungsvariablen (Tests, Sonderfälle)
 

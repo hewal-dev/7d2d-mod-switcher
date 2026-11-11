@@ -15,6 +15,7 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["MODSWITCH_NO_ASK"] = "1"
+os.environ["MODSWITCH_NO_OPEN"] = "1"
 
 APP_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(APP_DIR))
@@ -45,8 +46,8 @@ def build_demo() -> None:
         for index in range(count):
             (folder / f"Mod{index + 1:02d}").mkdir(exist_ok=True)
     link = GAME / "Mods"
-    if link.is_symlink() or link.exists():
-        link.unlink()
+    if mod.is_link(link) or link.exists():
+        mod.remove_link(link)
     link.symlink_to(BASE / ACTIVE, target_is_directory=True)
 
 
@@ -75,6 +76,20 @@ def main() -> int:
     dialog.show()
     app.processEvents()
     dialog.grab().save(str(OUT / "paths-en.png"))
+
+    # first start: the mod folder does not exist yet
+    empty = DEMO / "demo"
+    (empty / "game").mkdir(parents=True, exist_ok=True)
+    mod.apply_paths(empty / "game", empty / "7 Days")
+    first = mod.SwitcherWindow()
+    first.resize(660, 480)
+    first.show()
+    app.processEvents()
+    first.grab().save(str(OUT / "firstrun-en.png"))
+    first.set_language("de")
+    app.processEvents()
+    first.grab().save(str(OUT / "firstrun-de.png"))
+    first.deleteLater()
 
     for image in sorted(OUT.glob("*.png")):
         print(f"{image} {image.stat().st_size} bytes")

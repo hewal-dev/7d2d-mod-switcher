@@ -17,6 +17,7 @@ from pathlib import Path
 if sys.platform != "win32":
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ["MODSWITCH_NO_ASK"] = "1"  # no blocking popup during tests
+os.environ["MODSWITCH_NO_OPEN"] = "1"  # never launch a file manager from the tests
 os.environ.setdefault("MODSWITCH_LANG", "de")  # the checks below assert German texts
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -39,6 +40,9 @@ def check(name: str, got, want) -> None:
 def load(tmp: Path):
     os.environ["MODSWITCH_GAME_DIR"] = str(tmp / "game")
     os.environ["MODSWITCH_MOD_BASE"] = str(tmp / "mods")
+    # never read the real user config: a saved language there would silently
+    # change every expected text below
+    os.environ["MODSWITCH_CONFIG"] = str(tmp / "config" / "config.json")
     for name in ("mod_switcher",):
         sys.modules.pop(name, None)
     return importlib.import_module("mod_switcher")
@@ -166,6 +170,53 @@ def test_symlink(tmp: Path) -> None:
     check("Anlegen gesperrt bei Symlink", dialog2.create_link_button.isEnabled(), False)
     check("Entfernen moeglich bei Symlink", dialog2.remove_link_button.isEnabled(), True)
 
+def test_first_run(tmp: Path) -> None:
+    """Erststart ohne Mod-Ordner: Checkliste statt Fehlermeldung, Ordner anlegen."""
+    print("--- Erststart ---")
+    root = tmp / "erststart"
+    (root / "game").mkdir(parents=True)
+    mod = load(root)
+    state = mod.setup_state()
+    check("Spielordner vorhanden", state["game"], True)
+    check("Mod-Ordner fehlt", state["base"], False)
+    check("Noch nicht bereit", state["ready"], False)
+    check("Kein Fehlerblocker", mod.check_state(), None)
+
+    window = mod.SwitcherWindow()
+    check("Checkliste sichtbar", window.setup_frame.isVisibleTo(window), True)
+
+    window.on_create_folder()
+    check("Ordner per Knopf angelegt", mod.MOD_BASE.is_dir(), True)
+    check("Meldung nennt angelegten Ordner", "Ordner angelegt" in window.status.text(), True)
+    check("Ohne Paket weiter nicht bereit", mod.setup_state()["ready"], False)
+    check("Checkliste bleibt sichtbar", window.setup_frame.isVisibleTo(window), True)
+
+    (mod.MOD_BASE / "01 Vanilla").mkdir()
+    window.reload()
+    check("Bereit nach erstem Paket", mod.setup_state()["ready"], True)
+    check("Checkliste verschwindet", window.setup_frame.isVisibleTo(window), False)
+    check("Umschalten jetzt moeglich", mod.can_switch(), True)
+
+    mod.apply_paths(root / "kein spiel", mod.MOD_BASE)
+    window.reload()
+    check("Ohne Spiel kein Umschalten", mod.can_switch(), False)
+    check("Checkliste zeigt den Spielordner", window.setup_frame.isVisibleTo(window), True)
+    check("Untertitel nennt den Spielordner", "Spielordner fehlt" in window.subtitle.text(), True)
+    window.select("01 Vanilla")
+    check("Aktivieren bleibt gesperrt", window.apply_button.isEnabled(), False)
+    check("Hinweis nennt den Spielordner", "Spielordner" in window.apply_button.toolTip(), True)
+    check("Dateimanager im Test abgeschaltet", mod.open_in_file_manager(mod.MOD_BASE), False)
+
+    # Pfad-Dialog: fehlender Mod-Ordner laesst sich direkt anlegen
+    dialog = mod.PathsDialog(root / "game", root / "neuer ordner")
+    check("Anlegen-Knopf aktiv", dialog.base_create_button.isEnabled(), True)
+    check("Speichern noch gesperrt", dialog.save_button.isEnabled(), False)
+    dialog.on_create_base()
+    check("Ordner aus dem Dialog angelegt", (root / "neuer ordner").is_dir(), True)
+    check("Speichern danach erlaubt", dialog.save_button.isEnabled(), True)
+    check("Anlegen-Knopf danach aus", dialog.base_create_button.isEnabled(), False)
+
+
 def test_language(tmp: Path) -> None:
     """English/German switcher, and the remembered choice."""
     print("--- Sprache ---")
@@ -283,10 +334,16 @@ def main() -> int:
         check("Nichts gelöscht", real.exists(), True)
 
         missing = load(tmp / "nichtda")
-        check("Fehlender Spielordner", "Spielordner nicht gefunden" in (missing.check_state() or ""), True)
+        mstate = missing.setup_state()
+        check("Fehlender Spielordner blockiert nicht", missing.check_state(), None)
+        check("Spielordner als fehlend erkannt", mstate["game"], False)
+        check("Mod-Ordner als fehlend erkannt", mstate["base"], False)
+        check("Nicht bereit ohne Ordner", mstate["ready"], False)
+        check("Umschalten gesperrt ohne Ordner", missing.can_switch(), False)
 
         test_paths(tmp)
         test_symlink(tmp)
+        test_first_run(tmp)
         test_language(tmp)
         print("FEHLGESCHLAGEN: " + ", ".join(failures) if failures else "Alle Prüfungen grün")
         # PySide6 crashes while destroying widgets at interpreter shutdown; exit directly

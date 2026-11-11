@@ -281,17 +281,55 @@ def mods_state() -> str:
     return "missing"
 
 
+def setup_state() -> dict:
+    """What is still missing for a working first run.
+
+    A missing game folder is not an error: mod sets can be collected before the
+    game is installed. Only a real `Mods` folder in the way needs a decision.
+    """
+    base_ok = MOD_BASE.is_dir()
+    sets = mod_sets() if base_ok else []
+    return {
+        "game": GAME_DIR.is_dir(),
+        "base": base_ok,
+        "sets": len(sets),
+        "ready": GAME_DIR.is_dir() and base_ok and bool(sets),
+    }
+
+
+def can_switch() -> bool:
+    """Everything needed to flip the link is in place."""
+    return GAME_DIR.is_dir() and bool(mod_sets()) and mods_state() != "directory"
+
+
 def check_state() -> str | None:
-    """Blocking problem for the UI, or None when switching can work."""
-    if not GAME_DIR.is_dir():
-        return T("err.game_missing", path=GAME_DIR)
-    if not MOD_BASE.is_dir():
-        return T("err.base_missing", path=MOD_BASE)
+    """Problem that needs a decision (a real Mods folder), or None."""
     if mods_state() == "directory":
         return T("err.real_dir")
-    if not mod_sets():
-        return T("err.no_sets", path=MOD_BASE)
     return None
+
+
+def create_mod_folder() -> Path:
+    """Create the configured mod folder; the empty state offers this as a button."""
+    MOD_BASE.mkdir(parents=True, exist_ok=True)
+    return MOD_BASE
+
+
+def open_in_file_manager(path: Path) -> bool:
+    """Show a folder in the desktop file manager; False when that is not possible."""
+    target = Path(path)
+    if os.environ.get("MODSWITCH_NO_OPEN") == "1" or not target.is_dir():
+        return False
+    try:
+        if IS_WINDOWS:
+            os.startfile(str(target))  # type: ignore[attr-defined]  # Windows only
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(target)])
+    except OSError:
+        return False
+    return True
 
 
 def backup_mods() -> Path | None:
@@ -367,6 +405,10 @@ QLineEdit {
 QLineEdit:focus { border: 1px solid #6c98ff; background: #1a1d24; }
 QLabel#warn { color: #ffbd66; font-size: 11px; }
 QLabel#ok { color: #4fd39a; font-size: 11px; }
+QFrame#setup {
+    background: #191b21; border: 1px solid #2a2e37; border-radius: 10px;
+}
+QPushButton#klein { min-width: 0px; padding: 4px 10px; font-size: 12px; }
 QPushButton#lang { min-width: 40px; padding: 4px 10px; font-size: 12px; }
 QPushButton#lang[aktiv="true"] {
     background: #2b3d64; border: 1px solid #5b8cff; color: #ffffff; font-weight: 600;
@@ -415,7 +457,9 @@ class PathsDialog(QDialog):
         outer.addWidget(title)
 
         outer.addLayout(self._path_row(T("paths.game"), T("paths.game_hint"), self.game_edit))
-        outer.addLayout(self._path_row(T("paths.base"), T("paths.base_hint"), self.base_edit))
+        outer.addLayout(
+            self._path_row(T("paths.base"), T("paths.base_hint"), self.base_edit, with_create=True)
+        )
 
         link_row = QHBoxLayout()
         link_row.setSpacing(8)
@@ -459,7 +503,9 @@ class PathsDialog(QDialog):
         self.base_edit.textChanged.connect(self._validate)
         self._validate()
 
-    def _path_row(self, label: str, hint: str, edit: QLineEdit) -> QVBoxLayout:
+    def _path_row(
+        self, label: str, hint: str, edit: QLineEdit, with_create: bool = False
+    ) -> QVBoxLayout:
         box = QVBoxLayout()
         box.setSpacing(4)
         name = QLabel(label)
@@ -470,6 +516,12 @@ class PathsDialog(QDialog):
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(lambda: self._browse(edit))
         line.addWidget(edit, 1)
+        if with_create:
+            self.base_create_button = QPushButton(T("button.create_folder"))
+            self.base_create_button.setObjectName("klein")
+            self.base_create_button.setCursor(Qt.PointingHandCursor)
+            self.base_create_button.clicked.connect(self.on_create_base)
+            line.addWidget(self.base_create_button)
         line.addWidget(browse)
         note = QLabel(hint)
         note.setObjectName("hinweis")
@@ -535,6 +587,16 @@ class PathsDialog(QDialog):
         self.status_text = message
         self._validate()
 
+    def on_create_base(self) -> None:
+        """Create the mod folder right here instead of sending the user away."""
+        target = Path(self.base_edit.text()).expanduser()
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._set_hint("banner", T("status.create_failed", msg=exc))
+            return
+        self._validate()
+
     def _validate(self) -> None:
         game = Path(self.game_edit.text()).expanduser()
         base = Path(self.base_edit.text()).expanduser()
@@ -549,6 +611,10 @@ class PathsDialog(QDialog):
         warning = ""
         if game.is_dir() and link.exists() and not linked:
             warning = T("paths.warn_real_dir")
+        if hasattr(self, "base_create_button"):
+            self.base_create_button.setEnabled(
+                bool(str(self.base_edit.text()).strip()) and not base.is_dir()
+            )
         if hasattr(self, "create_link_button"):
             self.create_link_button.setEnabled(game.is_dir() and base.is_dir() and not linked)
             self.remove_link_button.setEnabled(linked)
@@ -591,6 +657,13 @@ class SwitcherWindow(QDialog):
         outer.setContentsMargins(22, 20, 22, 16)
         outer.setSpacing(12)
         outer.addLayout(self._build_header())
+
+        self.setup_frame = QFrame()
+        self.setup_frame.setObjectName("setup")
+        self.setup_layout = QVBoxLayout(self.setup_frame)
+        self.setup_layout.setContentsMargins(14, 12, 14, 12)
+        self.setup_layout.setSpacing(8)
+        outer.addWidget(self.setup_frame)
 
         self.banner = QLabel()
         self.banner.setObjectName("banner")
@@ -743,6 +816,129 @@ class SwitcherWindow(QDialog):
         self.status.setText(message)
         return True
 
+    # ---------------------------------------------------------- first run
+    @staticmethod
+    def _clear_layout(layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+            elif item.layout() is not None:
+                SwitcherWindow._clear_layout(item.layout())
+
+    def _setup_row(self, ok: bool, text: str, buttons=()) -> QWidget:
+        """One checklist line: state dot, text and the buttons that fix it."""
+        row = QWidget()
+        line = QHBoxLayout(row)
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(8)
+
+        dot = QLabel("●" if ok else "○")
+        dot.setObjectName("ok" if ok else "warn")
+        label = QLabel(text)
+        label.setObjectName("feld" if ok else "warn")
+        label.setWordWrap(True)
+        line.addWidget(dot)
+        line.addWidget(label, 1)
+
+        for caption, handler in buttons:
+            button = QPushButton(caption)
+            button.setObjectName("klein")
+            button.setCursor(Qt.PointingHandCursor)
+            button.clicked.connect(handler)
+            line.addWidget(button)
+        return row
+
+    def _refresh_setup(self) -> None:
+        """Show the getting-started checklist while anything is still missing."""
+        self._clear_layout(self.setup_layout)
+        state = setup_state()
+        self.setup_frame.setVisible(not state["ready"])
+        if state["ready"]:
+            return
+
+        title = QLabel(T("setup.title"))
+        title.setObjectName("subtitle")
+        self.setup_layout.addWidget(title)
+
+        if state["game"]:
+            self.setup_layout.addWidget(
+                self._setup_row(True, T("setup.game.ok", path=GAME_DIR))
+            )
+        else:
+            self.setup_layout.addWidget(
+                self._setup_row(
+                    False,
+                    T("setup.game.missing"),
+                    [(T("button.choose_folder"), lambda: self.choose_folder("game"))],
+                )
+            )
+
+        if state["base"]:
+            self.setup_layout.addWidget(
+                self._setup_row(
+                    True,
+                    T("setup.base.ok", path=MOD_BASE),
+                    [(T("button.open_folder"), lambda: open_in_file_manager(MOD_BASE))],
+                )
+            )
+        else:
+            self.setup_layout.addWidget(
+                self._setup_row(
+                    False,
+                    T("setup.base.missing", path=MOD_BASE),
+                    [
+                        (T("button.create_folder"), self.on_create_folder),
+                        (T("button.choose_folder"), lambda: self.choose_folder("base")),
+                    ],
+                )
+            )
+
+        if state["base"]:
+            if state["sets"]:
+                self.setup_layout.addWidget(
+                    self._setup_row(True, T("setup.sets.count", count=state["sets"]))
+                )
+            else:
+                self.setup_layout.addWidget(
+                    self._setup_row(
+                        False,
+                        T("setup.sets.none"),
+                        [
+                            (T("button.open_folder"), lambda: open_in_file_manager(MOD_BASE)),
+                            (T("button.reload"), self.reload),
+                        ],
+                    )
+                )
+
+    def choose_folder(self, which: str) -> None:
+        """Pick the game folder or the mod folder straight from the checklist."""
+        start = MOD_BASE if which == "base" else GAME_DIR
+        if not start.is_dir():
+            start = Path.home()
+        chosen = QFileDialog.getExistingDirectory(self, T("dialog.choose_folder"), str(start))
+        if not chosen:
+            return
+        path = Path(chosen)
+        if which == "base":
+            apply_paths(GAME_DIR, path)
+        else:
+            apply_paths(path, MOD_BASE)
+        write_config(GAME_DIR, MOD_BASE, T.language)
+        self.reload()
+        self.status.setText(T("status.folder_chosen", path=path))
+
+    def on_create_folder(self) -> None:
+        """Create the mod folder so the user does not have to leave the app."""
+        try:
+            created = create_mod_folder()
+        except OSError as exc:
+            self.status.setText(T("status.create_failed", msg=exc))
+            return
+        self.reload()
+        self.status.setText(T("status.folder_created", path=created))
+
     def edit_paths(self) -> bool:
         """Open the path dialog; on save remember the choice and reload."""
         dialog = PathsDialog(GAME_DIR, MOD_BASE, self)
@@ -814,10 +1010,17 @@ class SwitcherWindow(QDialog):
         self.banner.setVisible(bool(self.error))
         if self.error:
             self.banner.setText(self.error)
-        elif active_name:
+        if active_name:
             self.subtitle.setText(T("header.active", name=active_name, count=len(sets)))
-        else:
+        elif sets:
             self.subtitle.setText(T("header.none", count=len(sets)))
+        else:
+            self.subtitle.setText(T("header.empty"))
+        if not GAME_DIR.is_dir():
+            self.subtitle.setText(
+                self.subtitle.text() + " · " + T("header.game_missing")
+            )
+        self._refresh_setup()
 
         self.path_label.setText(T("path.base", path=MOD_BASE))
         self.path_label.setToolTip(T("path.tooltip", game=GAME_DIR, base=MOD_BASE))
@@ -832,13 +1035,20 @@ class SwitcherWindow(QDialog):
         aktive = active_target()
         name = self.selected()
         schon_aktiv = bool(name) and name == (aktive.name if aktive else "")
-        self.apply_button.setEnabled(bool(name) and not schon_aktiv)
+        state = setup_state()
+        self.apply_button.setEnabled(bool(name) and not schon_aktiv and can_switch())
         self.apply_button.setText(
             T("button.already_active") if schon_aktiv else T("button.activate")
         )
-        self.apply_button.setToolTip(
-            T("tip.already_active") if schon_aktiv else T("tip.activate")
-        )
+        if schon_aktiv:
+            tip = T("tip.already_active")
+        elif not state["game"]:
+            tip = T("tip.needs_game")
+        elif not state["sets"]:
+            tip = T("tip.needs_sets")
+        else:
+            tip = T("tip.activate")
+        self.apply_button.setToolTip(tip)
 
     def apply(self) -> None:
         name = self.selected()

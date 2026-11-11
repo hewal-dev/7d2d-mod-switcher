@@ -10,7 +10,7 @@
 ; unter „Apps & Features" zum Deinstallieren.
 
 #define AppName "7D2D Mod Switcher"
-#define AppVersion "1.2.1"
+#define AppVersion "1.3.0"
 #define AppExe "7D2D-Mod-Switcher.exe"
 #define AppPublisher "Hewal-dev"
 #define AppUrl "https://github.com/hewal-dev/7d2d-mod-switcher"
@@ -40,7 +40,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 CloseApplications=yes
-VersionInfoVersion=1.2.1.0
+VersionInfoVersion=1.3.0.0
 VersionInfoDescription=7D2D Mod Switcher Setup
 VersionInfoProductName={#AppName}
 VersionInfoProductVersion={#AppVersion}
