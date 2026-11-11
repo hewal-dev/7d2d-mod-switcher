@@ -28,8 +28,14 @@ without FUSE2 use `./7D2D-Mod-Switcher-x86_64.AppImage --appimage-extract-and-ru
 
 ### Windows
 
-`7D2D-Mod-Switcher.exe` is attached to the same releases: one file, nothing to install. It
-creates a **junction** instead of a symlink — junctions need neither administrator rights nor
+Two downloads are available for Windows:
+
+| File | Use |
+|---|---|
+| `7D2D-Mod-Switcher-Setup-1.2.1.exe` | **recommended** — installs for the current user (no admin rights), creates a Start-menu entry, an optional desktop icon and an uninstall entry under *Apps & features* |
+| `7D2D-Mod-Switcher.exe` | single file, runs straight from any folder without installing |
+
+Both create a **junction** instead of a symlink — junctions need neither administrator rights nor
 Developer Mode. Everything else works the same; the config lives in
 `%APPDATA%\7d2d-mod-switcher\config.json`.
 
@@ -37,7 +43,9 @@ Build it yourself on Windows:
 
 ```powershell
 python -m pip install PySide6 pyinstaller
+winget install --id JRSoftware.InnoSetup -e
 powershell -ExecutionPolicy Bypass -File packaging\win\build.ps1
+iscc packaging\win\installer.iss        # → dist\7D2D-Mod-Switcher-Setup-<version>.exe
 ```
 
 ## Run from source
@@ -182,8 +190,14 @@ Fertige **AppImage** für x86_64 unter [Releases](../../releases/latest): herunt
 
 ### Windows
 
-`7D2D-Mod-Switcher.exe` liegt bei denselben Releases: eine Datei, nichts zu installieren. Die
-App legt dort eine **Junction** statt eines Symlinks an — dafür braucht es weder Administrator-
+Für Windows gibt es zwei Downloads:
+
+| Datei | Zweck |
+|---|---|
+| `7D2D-Mod-Switcher-Setup-1.2.1.exe` | **empfohlen** — installiert für den aktuellen Benutzer (keine Administratorrechte), legt Startmenü-Eintrag, wahlweise ein Desktopsymbol und einen Eintrag unter *Apps & Features* zum Deinstallieren an |
+| `7D2D-Mod-Switcher.exe` | einzelne Datei, läuft ohne Installation aus jedem Ordner |
+
+Beide legen unter Windows eine **Junction** statt eines Symlinks an — dafür braucht es weder Administrator-
 rechte noch den Entwicklermodus. Alles andere ist gleich; die Konfiguration liegt in
 `%APPDATA%\7d2d-mod-switcher\config.json`.
 
@@ -191,7 +205,9 @@ Selbst bauen unter Windows:
 
 ```powershell
 python -m pip install PySide6 pyinstaller
+winget install --id JRSoftware.InnoSetup -e
 powershell -ExecutionPolicy Bypass -File packaging\win\build.ps1
+iscc packaging\win\installer.iss        # → dist\7D2D-Mod-Switcher-Setup-<Version>.exe
 ```
 
 ### Aus dem Quellcode starten

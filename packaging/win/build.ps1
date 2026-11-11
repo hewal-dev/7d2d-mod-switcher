@@ -7,6 +7,8 @@
 # Aufruf (im Repo-Wurzelverzeichnis):  powershell -ExecutionPolicy Bypass -File packaging\win\build.ps1
 #
 # Ergebnis: dist\7D2D-Mod-Switcher.exe (eine Datei, Python und PySide6 enthalten).
+# Danach optional der Installer (Startmenü-/Desktop-Verknüpfung, Deinstallation):
+#   iscc packaging\win\installer.iss
 # Hinweis: Die App legt unter Windows eine Junction an (mklink /J) statt eines
 # Symlinks, weil Junctions keine Sonderrechte brauchen.
 
@@ -16,6 +18,7 @@ Push-Location $root
 try {
     python -m PyInstaller --noconfirm --clean --windowed --onefile `
         --name "7D2D-Mod-Switcher" `
+        --icon "assets\mod-switcher-logo.ico" `
         --add-data "assets;assets" `
         --add-data "ui_kit;ui_kit" `
         mod_switcher.py
